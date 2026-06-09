@@ -7,20 +7,15 @@ import {
 import { supabaseFunctionsInvokeRegion } from '@/lib/config';
 import { supabase } from '@/lib/supabase';
 
-export type LiveKitTokenResponse = {
+export type GeminiLiveTokenResponse = {
   token: string;
-  url: string;
-  /** Set by Edge Function when agent dispatch runs (helps verify deployed code). */
-  dispatchPath?:
-    | 'create_room_agents'
-    | 'explicit_dispatch'
-    | 'explicit_dispatch_skip'
-    | 'explicit_dispatch_skip_unverified_list';
+  model: string;
+  expireTime: string;
+  languageA: string;
+  languageB: string;
 };
 
-/** Cold Edge start + LiveKit Twirp inside the function can exceed default patience on cellular. */
 const INVOKE_TIMEOUT_MS = 90_000;
-
 const MAX_ATTEMPTS = 4;
 
 function sleep(ms: number): Promise<void> {
@@ -28,9 +23,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 function backoffMs(attemptIndex: number): number {
-  const base = 450 * 2 ** attemptIndex;
-  const jitter = Math.floor(Math.random() * 320);
-  return base + jitter;
+  return 450 * 2 ** attemptIndex + Math.floor(Math.random() * 320);
 }
 
 function isRetriableInvokeError(error: unknown): boolean {
@@ -63,26 +56,29 @@ async function formatInvokeFailure(error: unknown): Promise<string> {
   return String(error);
 }
 
-export async function mintLiveKitToken(roomName: string, participantName: string): Promise<LiveKitTokenResponse> {
+export async function mintGeminiLiveToken(
+  languageA: string,
+  languageB: string,
+): Promise<GeminiLiveTokenResponse> {
   const region = supabaseFunctionsInvokeRegion();
   let lastError: unknown;
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    const { data, error } = await supabase.functions.invoke<LiveKitTokenResponse>('livekit-token', {
-      body: { roomName, participantName },
-      timeout: INVOKE_TIMEOUT_MS,
-      ...(region ? { region } : {}),
-    });
+    const { data, error } = await supabase.functions.invoke<GeminiLiveTokenResponse>(
+      'gemini-live-token',
+      {
+        body: { languageA, languageB },
+        timeout: INVOKE_TIMEOUT_MS,
+        ...(region ? { region } : {}),
+      },
+    );
 
-    if (!error && data?.token && data?.url) {
-      if (__DEV__ && data.dispatchPath) {
-        console.log('[Voisa] livekit-token dispatchPath:', data.dispatchPath);
-      }
+    if (!error && data?.token && data?.model) {
       return data;
     }
 
     if (!error) {
-      throw new Error('livekit-token returned an invalid payload');
+      throw new Error('gemini-live-token returned an invalid payload');
     }
 
     lastError = error;

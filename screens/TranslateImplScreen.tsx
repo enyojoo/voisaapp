@@ -1,8 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { requestRecordingPermissionsAsync, setAudioModeAsync } from 'expo-audio';
+import { requestRecordingPermissionsAsync } from 'expo-audio';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Animated,
   Dimensions,
   FlatList,
@@ -21,29 +20,24 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppHeader } from '@/components/AppHeader';
-import { useLiveKitTranslator } from '@/hooks/useLiveKitTranslator';
+import { useGeminiLiveTranslator } from '@/hooks/useGeminiLiveTranslator';
 import { configureVoisaRuntimeLogging } from '@/lib/logging/configureClientLogging';
-import { SONIOX_LANGUAGES, sonioxLanguageLabel, type SonioxLanguage } from '@/lib/sonioxLanguages';
-import { useAuth } from '@/providers/AuthProvider';
+import { GEMINI_LANGUAGES, geminiLanguageLabel, type GeminiLanguage } from '@/lib/geminiLanguages';
 import { useTranslatorLifecycle } from '@/providers/TranslatorLifecycleProvider';
 import { colors, spacing } from '@/theme/tokens';
-
-function randomRoomName(): string {
-  return `voisa-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-}
 
 const WINDOW_HEIGHT = Dimensions.get('window').height;
 
 export default function TranslateScreenImpl() {
-  const { user } = useAuth();
   const { registerTranslatorStop } = useTranslatorLifecycle();
-  const lk = useLiveKitTranslator();
+  const gem = useGeminiLiveTranslator();
   const insets = useSafeAreaInsets();
   const [micError, setMicError] = useState<string | null>(null);
   const transcriptScrollRef = useRef<ScrollView>(null);
-  const pickerListRef = useRef<FlatList<SonioxLanguage>>(null);
+  const pickerListRef = useRef<FlatList<GeminiLanguage>>(null);
+  const activePairKeyRef = useRef<string | null>(null);
 
-  /** Left dock pill = translate-from language; right = translate-to (Soniox pair order sent as language_a / language_b). */
+  /** Left dock pill = language A; right = language B (Gemini target is language B with echo). */
   const [languageLeft, setLanguageLeft] = useState('en');
   const [languageRight, setLanguageRight] = useState('es');
   const [pickerSlot, setPickerSlot] = useState<'left' | 'right' | null>(null);
@@ -53,64 +47,43 @@ export default function TranslateScreenImpl() {
     configureVoisaRuntimeLogging();
   }, []);
 
-  const participantName = useMemo(() => {
-    const id = user?.id;
-    const email = user?.email;
-    if (email && email.trim()) return email.trim().slice(0, 120);
-    if (id) return `user-${id.slice(0, 18)}`;
-    return `guest-${Math.random().toString(36).slice(2, 8)}`;
-  }, [user]);
-
-  /** Session chrome after LiveKit + mic are ready; cleared on stop, disconnect, or failed start. */
+  /** Tap → listening UI immediately (Google Translate–style); cleared on stop or failed start. */
   const [sessionStartedOnTap, setSessionStartedOnTap] = useState(false);
-  /** Immediate tap feedback while transport/audio session is arming. */
-  const [isStarting, setIsStarting] = useState(false);
 
-  const connecting = lk.connection === 'connecting';
-  const active = lk.connection === 'connected' || lk.connection === 'reconnecting';
-  /** UX invariant: show stop/listening only when mic is truly live (or already active/reconnecting). */
-  const inSessionUi = lk.micLive || active || sessionStartedOnTap;
+  const connecting = gem.connection === 'connecting';
+  const active = gem.connection === 'connected' || gem.connection === 'reconnecting';
+  const inSessionUi =
+    sessionStartedOnTap || gem.micLive || active || connecting || gem.connection === 'reconnecting';
   const bodyFade = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    if (lk.connection === 'idle' || lk.connection === 'error') {
+    if (gem.connection === 'idle' || gem.connection === 'error') {
       setSessionStartedOnTap(false);
+      activePairKeyRef.current = null;
     }
-  }, [lk.connection]);
+  }, [gem.connection]);
 
   useEffect(() => {
-    if (lk.micLive || lk.connection === 'idle' || lk.connection === 'error') {
-      setIsStarting(false);
+    if (!inSessionUi) {
+      void gem.warmupSession({ languageA: languageLeft, languageB: languageRight });
     }
-  }, [lk.micLive, lk.connection]);
+  }, [inSessionUi, languageLeft, languageRight, gem]);
 
   useEffect(() => {
-    if (lk.micLive) setSessionStartedOnTap(true);
-  }, [lk.micLive]);
+    void requestRecordingPermissionsAsync();
+  }, []);
 
-  /** Voisa bilingual stream (authoritative when present). */
-  const hasVoisaOriginal = lk.liveOriginal.trim().length > 0;
-  const hasVoisaTranslated = lk.liveTranslated.trim().length > 0;
-  const hasVoisaLive = hasVoisaOriginal || hasVoisaTranslated;
-  /** LiveKit Agents user captions — can arrive before `voisa.transcript` partials; must not leave UI on “Listening…”. */
-  const hasLkCaption = lk.liveUserTranscriptLk.trim().length > 0;
+  const hasLiveOriginal = gem.liveOriginal.trim().length > 0;
+  const hasLiveTranslated = gem.liveTranslated.trim().length > 0;
+  const hasGeminiLive = hasLiveOriginal || hasLiveTranslated;
 
   const listeningIdle =
     inSessionUi &&
-    lk.micLive &&
-    lk.segments.length === 0 &&
-    !hasVoisaLive &&
-    !hasLkCaption;
+    gem.segments.length === 0 &&
+    !hasGeminiLive &&
+    (gem.micLive || connecting);
 
-  /**
-   * Paired live card prefers voisa originals. If only translated text exists, require lk captions for source context
-   * instead of rendering a `...` source line that looks like a ghost frame.
-   */
-  const hasLiveLine = inSessionUi && (hasVoisaOriginal || (hasVoisaTranslated && hasLkCaption));
-
-  /** Single-column fallback when captions exist but Soniox bridge has not painted voisa lines yet. */
-  const showLkCaptionOnly =
-    inSessionUi && lk.segments.length === 0 && !hasVoisaOriginal && !hasVoisaTranslated && hasLkCaption;
+  const hasLiveLine = inSessionUi && hasLiveOriginal;
 
   const bodyViewMode: 'home' | 'listening' | 'transcript' = !inSessionUi
     ? 'home'
@@ -128,23 +101,18 @@ export default function TranslateScreenImpl() {
     }).start();
   }, [bodyFade, bodyViewMode]);
 
-  const liveOriginalDisplay = hasVoisaOriginal
-    ? lk.liveOriginal.trim()
-    : hasLkCaption
-      ? lk.liveUserTranscriptLk.trim()
-      : '';
+  const liveOriginalDisplay = gem.liveOriginal.trim();
 
   /**
-   * Three pulsing dots shown in the translated slot while original tokens are arriving but Soniox has not emitted
-   * translation tokens for the current chunk yet (real-time translation is interleaved per
-   * https://soniox.com/docs/stt/rt/real-time-translation — small lead time between original and translation
-   * chunks). Sized to match the translated text so the live card never collapses or appears empty.
+   * Three pulsing dots shown in the translated slot while original tokens are arriving but Gemini has not emitted
+   * translation tokens for the current chunk yet. Sized to match the translated text so the live card never
+   * collapses or appears empty.
    */
   const dot1 = useRef(new Animated.Value(0.25)).current;
   const dot2 = useRef(new Animated.Value(0.25)).current;
   const dot3 = useRef(new Animated.Value(0.25)).current;
   const showTranslatingPulse =
-    hasLiveLine && !hasVoisaTranslated && liveOriginalDisplay.length > 0;
+    hasLiveLine && !hasLiveTranslated && liveOriginalDisplay.length > 0;
   useEffect(() => {
     if (!showTranslatingPulse) {
       dot1.setValue(0.25);
@@ -174,30 +142,34 @@ export default function TranslateScreenImpl() {
     };
   }, [showTranslatingPulse, dot1, dot2, dot3]);
 
-  const showLkCaptionDebug =
-    __DEV__ &&
-    typeof process.env.EXPO_PUBLIC_VOISA_DEBUG_LK_CAPTIONS === 'string' &&
-    process.env.EXPO_PUBLIC_VOISA_DEBUG_LK_CAPTIONS === '1';
-
   useEffect(() => {
     if (!active) return;
     const id = requestAnimationFrame(() => {
       transcriptScrollRef.current?.scrollToEnd({ animated: true });
     });
     return () => cancelAnimationFrame(id);
-  }, [active, lk.segments.length, lk.liveTranslated, lk.liveOriginal, lk.liveUserTranscriptLk]);
+  }, [active, gem.segments.length, gem.liveTranslated, gem.liveOriginal]);
 
-  /**
-   * Push language pair when the UI changes mid-session.
-   * Must NOT run during `connecting` / `reconnecting`: `useLiveKitTranslator` already publishes after ICE reaches
-   * Connected and republishes on reconnect — screen publishes here only once LiveKit reports `connected`.
-   */
+  /** Locked ephemeral token — reconnect when the language pair changes mid-session. */
   useEffect(() => {
     if (!inSessionUi) return;
-    if (lk.connection === 'error') return;
-    if (lk.connection !== 'connected') return;
-    void lk.publishLanguagePair(languageLeft, languageRight, { waitMs: 8000 });
-  }, [inSessionUi, lk.connection, languageLeft, languageRight, lk.publishLanguagePair]);
+    if (gem.connection !== 'connected') return;
+    const key = `${languageLeft}|${languageRight}`;
+    if (activePairKeyRef.current === null) {
+      activePairKeyRef.current = key;
+      return;
+    }
+    if (activePairKeyRef.current === key) return;
+    activePairKeyRef.current = key;
+    void (async () => {
+      await gem.stopSession();
+      try {
+        await gem.startSession({ languageA: languageLeft, languageB: languageRight });
+      } catch {
+        /* surfaced via lastError */
+      }
+    })();
+  }, [inSessionUi, gem.connection, languageLeft, languageRight, gem]);
 
   const swapLanguages = useCallback(() => {
     setLanguageLeft(languageRight);
@@ -230,12 +202,12 @@ export default function TranslateScreenImpl() {
   const filteredPickerLanguages = useMemo(() => {
     const q = pickerQuery.trim().toLowerCase();
     const base = q
-      ? SONIOX_LANGUAGES.filter(
+      ? GEMINI_LANGUAGES.filter(
           (l) =>
             l.label.toLowerCase().includes(q) ||
             l.code.toLowerCase().includes(q),
         )
-      : SONIOX_LANGUAGES;
+      : GEMINI_LANGUAGES;
 
     if (!pickerSlot) return base;
 
@@ -265,64 +237,40 @@ export default function TranslateScreenImpl() {
   }, []);
 
   const start = useCallback(() => {
-    void (async () => {
-      if (isStarting) return;
-      setIsStarting(true);
-      setMicError(null);
-      lk.clearSegments();
+    setSessionStartedOnTap(true);
+    setMicError(null);
+    gem.clearSegments();
 
+    void (async () => {
       const perm = await requestRecordingPermissionsAsync();
       if (!perm.granted) {
         setSessionStartedOnTap(false);
-        setIsStarting(false);
         setMicError('Microphone permission is required.');
         return;
       }
 
-      /** iOS: LiveKit/WebRTC configures AVAudioSession in prepareLiveKitAudioSession — expo-audio here fights it and can throw OSStatus 561017449 (“setting category”). */
-      if (Platform.OS === 'android') {
-        try {
-          await setAudioModeAsync({
-            allowsRecording: true,
-            playsInSilentMode: true,
-            interruptionMode: 'mixWithOthers',
-            shouldRouteThroughEarpiece: false,
-            shouldPlayInBackground: false,
-          });
-        } catch {
-          /* transient category conflicts while another subsystem holds the session */
-        }
-      }
-
-      const roomName = randomRoomName();
       try {
-        await lk.startSession({
-          roomName,
-          participantName,
+        await gem.startSession({
           languageA: languageLeft,
           languageB: languageRight,
         });
-        setSessionStartedOnTap(true);
+        activePairKeyRef.current = `${languageLeft}|${languageRight}`;
       } catch {
         setSessionStartedOnTap(false);
-        setIsStarting(false);
         /** `lastError` + connection state surfaced in banners */
       }
     })();
-  }, [isStarting, lk, participantName, languageLeft, languageRight]);
+  }, [gem, languageLeft, languageRight]);
 
   const stop = useCallback(async () => {
-    setIsStarting(false);
     setSessionStartedOnTap(false);
-    await lk.stopSession();
-  }, [lk]);
+    await gem.stopSession();
+  }, [gem]);
 
   const toggleSession = useCallback(() => {
-    if (isStarting) return;
-    if (connecting && !inSessionUi) return;
     if (inSessionUi) void stop();
     else void start();
-  }, [isStarting, connecting, inSessionUi, start, stop]);
+  }, [inSessionUi, start, stop]);
 
   useEffect(() => {
     registerTranslatorStop(stop);
@@ -333,8 +281,7 @@ export default function TranslateScreenImpl() {
     <SafeAreaView style={styles.safe} edges={['top', 'left', 'right']}>
       <AppHeader />
 
-      {lk.lastError ? <Text style={styles.banner}>{lk.lastError}</Text> : null}
-      {lk.agentNotice ? <Text style={styles.banner}>{lk.agentNotice}</Text> : null}
+      {gem.lastError ? <Text style={styles.banner}>{gem.lastError}</Text> : null}
       {micError ? <Text style={styles.banner}>{micError}</Text> : null}
 
       <Animated.View style={[styles.body, { opacity: bodyFade }]}>
@@ -342,13 +289,21 @@ export default function TranslateScreenImpl() {
           <View style={styles.bodyCenter}>
             <View style={styles.hero}>
               <Text style={styles.heroTitle}>Live Translator</Text>
-              <Text style={styles.heroSubtitle}>Tap mic to translate in real-time</Text>
+              <Text style={styles.heroSubtitle}>
+                Tap mic to translate. Use headphones, or hold the phone to your ear to hear
+                translations privately.
+              </Text>
             </View>
           </View>
         ) : bodyViewMode === 'listening' ? (
           <View style={styles.bodyCenter}>
             <View style={styles.hero}>
               <Text style={styles.listening}>Listening…</Text>
+              <Text style={styles.listeningHint}>
+                {gem.outputRoute === 'headphones'
+                  ? 'Audio plays through your headphones.'
+                  : 'Hold the phone to your ear to hear translations privately.'}
+              </Text>
             </View>
           </View>
         ) : (
@@ -360,21 +315,17 @@ export default function TranslateScreenImpl() {
             showsVerticalScrollIndicator
             accessibilityLiveRegion="polite"
           >
-            {lk.segments.map((item) => {
+            {gem.segments.map((item) => {
               /**
                * If the live partial is a continuation of THIS segment (sliding pause window), render it inline so
                * the user sees ONE growing card per thread — no separate "live" card flashing in/out below.
                */
-              const isContinuation = lk.liveContinuationSegmentId === item.id;
+              const isContinuation = gem.liveContinuationSegmentId === item.id;
               const continuationTranslated = isContinuation
-                ? lk.liveTranslated.trim()
+                ? gem.liveTranslated.trim()
                 : '';
               const continuationOriginal = isContinuation
-                ? hasVoisaOriginal
-                  ? lk.liveOriginal.trim()
-                  : hasLkCaption
-                    ? lk.liveUserTranscriptLk.trim()
-                    : ''
+                ? gem.liveOriginal.trim()
                 : '';
               const showInlinePulse =
                 isContinuation && !continuationTranslated && (continuationOriginal.length > 0);
@@ -389,7 +340,7 @@ export default function TranslateScreenImpl() {
                   <Text
                     style={styles.originalSecondary}
                     selectable
-                    accessibilityHint={`Spoken (${sonioxLanguageLabel(languageLeft)})`}
+                    accessibilityHint={`Spoken (${geminiLanguageLabel(languageLeft)})`}
                   >
                     {originalDisplay || '…'}
                   </Text>
@@ -400,7 +351,7 @@ export default function TranslateScreenImpl() {
                     <Text
                       style={styles.translationPrimary}
                       selectable
-                      accessibilityHint={`Translated (${sonioxLanguageLabel(languageRight)})`}
+                      accessibilityHint={`Translated (${geminiLanguageLabel(languageRight)})`}
                     >
                       {translatedDisplay}
                     </Text>
@@ -409,7 +360,7 @@ export default function TranslateScreenImpl() {
                     <View
                       style={styles.translatingPulseRow}
                       accessibilityLabel="Translating"
-                      accessibilityHint={`Translating to ${sonioxLanguageLabel(languageRight)}`}
+                      accessibilityHint={`Translating to ${geminiLanguageLabel(languageRight)}`}
                     >
                       <Animated.View style={[styles.translatingDot, { opacity: dot1 }]} />
                       <Animated.View style={[styles.translatingDot, { opacity: dot2 }]} />
@@ -420,7 +371,7 @@ export default function TranslateScreenImpl() {
                     <Text
                       style={styles.translationPrimary}
                       selectable={false}
-                      accessibilityHint={`Translated (${sonioxLanguageLabel(languageRight)})`}
+                      accessibilityHint={`Translated (${geminiLanguageLabel(languageRight)})`}
                     >
                       …
                     </Text>
@@ -429,49 +380,31 @@ export default function TranslateScreenImpl() {
               );
             })}
 
-            {showLkCaptionOnly ? (
-              <View style={styles.transcriptCard} accessibilityLiveRegion="polite">
-                <Text style={styles.lkCaptionHint} selectable={false}>
-                  Live captions (LiveKit)
-                </Text>
-                <Text
-                  style={styles.originalSecondary}
-                  selectable
-                  accessibilityHint={`Heard (${sonioxLanguageLabel(languageLeft)})`}
-                >
-                  {lk.liveUserTranscriptLk.trim()}
-                </Text>
-                <Text style={styles.lkCaptionSubhint} selectable={false}>
-                  Paired translation appears when the translator stream connects.
-                </Text>
-              </View>
-            ) : null}
-
-            {hasLiveLine && lk.liveContinuationSegmentId === null ? (
+            {hasLiveLine && gem.liveContinuationSegmentId === null ? (
               <View style={styles.transcriptCard} accessibilityLiveRegion="polite">
                 <Text
                   style={styles.originalSecondary}
                   selectable
-                  accessibilityHint={`Spoken (${sonioxLanguageLabel(languageLeft)})`}
+                  accessibilityHint={`Spoken (${geminiLanguageLabel(languageLeft)})`}
                 >
                   {liveOriginalDisplay}
                 </Text>
 
                 <View style={styles.transcriptDivider} />
 
-                {hasVoisaTranslated ? (
+                {hasLiveTranslated ? (
                   <Text
                     style={styles.translationPrimary}
                     selectable
-                    accessibilityHint={`Translated (${sonioxLanguageLabel(languageRight)})`}
+                    accessibilityHint={`Translated (${geminiLanguageLabel(languageRight)})`}
                   >
-                    {lk.liveTranslated.trim()}
+                    {gem.liveTranslated.trim()}
                   </Text>
                 ) : (
                   <View
                     style={styles.translatingPulseRow}
                     accessibilityLabel="Translating"
-                    accessibilityHint={`Translating to ${sonioxLanguageLabel(languageRight)}`}
+                    accessibilityHint={`Translating to ${geminiLanguageLabel(languageRight)}`}
                   >
                     <Animated.View style={[styles.translatingDot, { opacity: dot1 }]} />
                     <Animated.View style={[styles.translatingDot, { opacity: dot2 }]} />
@@ -481,14 +414,6 @@ export default function TranslateScreenImpl() {
               </View>
             ) : null}
 
-            {showLkCaptionDebug && lk.liveUserTranscriptLk.trim().length > 0 ? (
-              <View style={styles.debugLkCaption} accessibilityLabel="LiveKit caption debug">
-                <Text style={styles.debugLkCaptionLabel}>lk.transcription (debug)</Text>
-                <Text style={styles.debugLkCaptionText} selectable>
-                  {lk.liveUserTranscriptLk.trim()}
-                </Text>
-              </View>
-            ) : null}
           </ScrollView>
         )}
       </Animated.View>
@@ -501,7 +426,7 @@ export default function TranslateScreenImpl() {
             accessibilityRole="button"
           >
             <Text style={styles.langPillText} numberOfLines={1}>
-              {sonioxLanguageLabel(languageLeft)}
+              {geminiLanguageLabel(languageLeft)}
             </Text>
           </Pressable>
           <Pressable
@@ -519,33 +444,24 @@ export default function TranslateScreenImpl() {
             accessibilityRole="button"
           >
             <Text style={styles.langPillText} numberOfLines={1}>
-              {sonioxLanguageLabel(languageRight)}
+              {geminiLanguageLabel(languageRight)}
             </Text>
           </Pressable>
         </View>
 
         <Pressable
-          style={styles.micFab}
+          style={[styles.micFab, inSessionUi && styles.micFabActive]}
           onPress={() => void toggleSession()}
-          disabled={isStarting}
           accessibilityRole="button"
           accessibilityLabel={
-            isStarting
-              ? 'Starting microphone'
-              : inSessionUi
-                ? 'Stop translation session'
-                : 'Start translation session'
+            inSessionUi ? 'Stop translation session' : 'Start translation session'
           }
         >
-          {isStarting ? (
-            <ActivityIndicator size="small" color="#fff" style={styles.micSpinner} />
-          ) : (
-            <Ionicons
-              name={inSessionUi ? 'stop-circle' : 'mic'}
-              size={inSessionUi ? 44 : 38}
-              color="#fff"
-            />
-          )}
+          <Ionicons
+            name={inSessionUi ? 'stop-circle' : 'mic'}
+            size={inSessionUi ? 44 : 38}
+            color="#fff"
+          />
         </Pressable>
       </View>
 
@@ -694,44 +610,18 @@ const styles = StyleSheet.create({
     color: colors.primary,
     textAlign: 'center',
   },
+  listeningHint: {
+    marginTop: spacing.sm,
+    fontSize: 15,
+    lineHeight: 22,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    paddingHorizontal: spacing.lg,
+  },
   listeningInScroll: {
     minHeight: WINDOW_HEIGHT * 0.42,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  lkCaptionHint: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.textMuted,
-    marginBottom: spacing.xs,
-  },
-  lkCaptionSubhint: {
-    marginTop: spacing.sm,
-    fontSize: 12,
-    lineHeight: 16,
-    color: colors.textMuted,
-  },
-  debugLkCaption: {
-    marginTop: spacing.sm,
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.sm,
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    backgroundColor: 'rgba(0,0,0,0.04)',
-  },
-  debugLkCaptionLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: colors.textMuted,
-    marginBottom: 4,
-    letterSpacing: 0.3,
-  },
-  debugLkCaptionText: {
-    fontSize: 13,
-    lineHeight: 18,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    color: colors.textSecondary,
   },
   transcriptScroll: { flex: 1 },
   transcriptScrollContent: {
@@ -839,8 +729,9 @@ const styles = StyleSheet.create({
     borderColor: colors.primaryRing,
     marginBottom: spacing.sm,
   },
-  micSpinner: {
-    transform: [{ scale: 1.2 }],
+  micFabActive: {
+    backgroundColor: '#7A8F00',
+    borderColor: '#6B7F00',
   },
   modalOuter: {
     flex: 1,

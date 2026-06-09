@@ -1,4 +1,4 @@
-/** Normalize transcript strings from Soniox / TTS before UI or persistence. */
+/** Normalize transcript strings from Gemini Live before UI or persistence. */
 
 export function sanitizeTranscriptDisplay(text: string): string {
   const stripped = text
@@ -22,7 +22,7 @@ export function translationForDisplay(sanitizedOriginal: string, sanitizedTransl
   return t;
 }
 
-/** Merge consecutive finals into one readable turn when Soniox emits rapid commits mid-thought. */
+/** Merge consecutive finals into one readable turn when Gemini emits rapid commits mid-thought. */
 export function mergeContinuationParagraph(prevBody: string, nextBody: string): string {
   const a = sanitizeTranscriptDisplay(prevBody);
   const b = sanitizeTranscriptDisplay(nextBody);

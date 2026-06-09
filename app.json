@@ -43,8 +43,14 @@
       "expo-dev-client",
       "expo-secure-store",
       "expo-audio",
-      "@livekit/react-native-expo-plugin",
-      "@config-plugins/react-native-webrtc",
+      [
+        "react-native-audio-api",
+        {
+          "iosBackgroundMode": false,
+          "androidForegroundService": false,
+          "androidPermissions": []
+        }
+      ],
       [
         "expo-splash-screen",
         {

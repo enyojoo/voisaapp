@@ -1,5 +1,5 @@
 [api]
 enabled = true
 
-[functions.livekit-token]
+[functions.gemini-live-token]
 verify_jwt = true

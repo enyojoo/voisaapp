@@ -1,6 +1,6 @@
 /**
  * Ambient stubs for editors that run the workspace TypeScript server on Edge Functions.
- * Runtime uses Deno + `npm:livekit-server-sdk@…` on Supabase; see `deno.json` and `.vscode/settings.json`.
+ * Runtime uses Deno + `npm:@google/genai@…` on Supabase; see `deno.json`.
  */
 
 declare namespace Deno {
@@ -11,25 +11,15 @@ declare namespace Deno {
   function serve(handler: (req: Request) => Response | Promise<Response>): void;
 }
 
-declare module "npm:livekit-server-sdk@2.15.3" {
-  export class AccessToken {
-    constructor(apiKey: string, apiSecret: string, opts?: { identity?: string; name?: string });
-    addGrant(grant: Record<string, unknown>): void;
-    toJwt(): Promise<string>;
+declare module "npm:@google/genai@2.8.0" {
+  export enum Modality {
+    AUDIO = "AUDIO",
   }
 
-  export class AgentDispatchClient {
-    constructor(host: string, apiKey?: string, secret?: string);
-    createDispatch(roomName: string, agentName: string, options?: Record<string, unknown>): Promise<unknown>;
-    listDispatch(roomName: string): Promise<Array<{ agentName: string }>>;
-  }
-
-  export class RoomServiceClient {
-    constructor(host: string, apiKey?: string, secret?: string);
-    createRoom(options: Record<string, unknown>): Promise<unknown>;
-  }
-
-  export class RoomAgentDispatch {
-    constructor(opts: { agentName: string; metadata?: string });
+  export class GoogleGenAI {
+    constructor(opts: { apiKey: string; httpOptions?: { apiVersion?: string } });
+    authTokens: {
+      create(opts: Record<string, unknown>): Promise<{ name: string; expireTime?: string }>;
+    };
   }
 }

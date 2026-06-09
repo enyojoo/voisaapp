@@ -1,3 +1,0 @@
-# Local-only deploy secrets for `lk agent create --secrets-file=...` (never commit)
-secrets.deploy.env
-dist/

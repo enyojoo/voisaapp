@@ -37,12 +37,15 @@ export function supabaseFunctionsInvokeRegion(): FunctionRegion | undefined {
 }
 
 /**
- * LiveKit agent remote audio gain (default 1). Lower slightly (e.g. 0.92) if the interpreter track clips the
+ * Gemini translated audio playback gain (default 1). Lower slightly (e.g. 0.92) if output clips the
  * device speaker; raise only if you intentionally need more headroom (max 1.5).
  */
-export function voisaRemoteAudioTrackVolume(): number {
+export function voisaTranslatedAudioVolume(): number {
   const raw =
-    getExtra('EXPO_PUBLIC_VOISA_REMOTE_AUDIO_VOLUME') ?? process.env.EXPO_PUBLIC_VOISA_REMOTE_AUDIO_VOLUME;
+    getExtra('EXPO_PUBLIC_VOISA_TRANSLATED_AUDIO_VOLUME') ??
+    process.env.EXPO_PUBLIC_VOISA_TRANSLATED_AUDIO_VOLUME ??
+    getExtra('EXPO_PUBLIC_VOISA_REMOTE_AUDIO_VOLUME') ??
+    process.env.EXPO_PUBLIC_VOISA_REMOTE_AUDIO_VOLUME;
   if (!raw?.trim()) return 1;
   const n = Number.parseFloat(raw.trim());
   if (!Number.isFinite(n)) return 1;
