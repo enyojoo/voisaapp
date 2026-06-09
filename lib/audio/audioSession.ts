@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import { AudioManager } from 'react-native-audio-api';
 
 import {
@@ -24,6 +25,10 @@ export async function prepareVoisaAudioSession(
     iosOptions: ['allowBluetoothHFP', 'allowBluetoothA2DP', 'mixWithOthers'],
   });
 
+  if (Platform.OS === 'android') {
+    AudioManager.observeAudioInterruptions('gain');
+  }
+
   const permissions = await AudioManager.requestRecordingPermissions();
   if (permissions !== 'Granted') {
     throw new Error('Microphone permission was not granted.');
@@ -42,6 +47,9 @@ export async function prepareVoisaAudioSession(
 
 export async function teardownVoisaAudioSession(): Promise<void> {
   stopOutputRouteSync();
+  if (Platform.OS === 'android') {
+    AudioManager.observeAudioInterruptions(false);
+  }
   try {
     await AudioManager.setAudioSessionActivity(false);
   } catch {

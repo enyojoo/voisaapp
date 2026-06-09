@@ -13,6 +13,7 @@ export type GeminiLiveTokenResponse = {
   expireTime: string;
   languageA: string;
   languageB: string;
+  targetLanguage: string;
 };
 
 const INVOKE_TIMEOUT_MS = 90_000;
@@ -59,6 +60,7 @@ async function formatInvokeFailure(error: unknown): Promise<string> {
 export async function mintGeminiLiveToken(
   languageA: string,
   languageB: string,
+  targetLanguage?: string,
 ): Promise<GeminiLiveTokenResponse> {
   const region = supabaseFunctionsInvokeRegion();
   let lastError: unknown;
@@ -67,7 +69,7 @@ export async function mintGeminiLiveToken(
     const { data, error } = await supabase.functions.invoke<GeminiLiveTokenResponse>(
       'gemini-live-token',
       {
-        body: { languageA, languageB },
+        body: { languageA, languageB, targetLanguage },
         timeout: INVOKE_TIMEOUT_MS,
         ...(region ? { region } : {}),
       },

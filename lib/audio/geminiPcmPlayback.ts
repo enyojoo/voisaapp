@@ -10,6 +10,7 @@ export class GeminiPcmPlayback {
   #nextTime = 0;
   #armed = false;
   #scheduled: InstanceType<typeof AudioBufferSourceNode>[] = [];
+  #onPlaybackIdle: (() => void) | null = null;
 
   constructor() {
     this.#ctx = new AudioContext({ sampleRate: GEMINI_OUTPUT_SAMPLE_RATE });
@@ -22,6 +23,31 @@ export class GeminiPcmPlayback {
     await this.#ctx.resume();
     this.#nextTime = this.#ctx.currentTime + 0.05;
     this.#armed = true;
+  }
+
+  setOnPlaybackIdle(callback: (() => void) | null): void {
+    this.#onPlaybackIdle = callback;
+  }
+
+  /** True while queued buffers are scheduled or still playing. */
+  hasScheduledAudio(): boolean {
+    return this.#scheduled.length > 0 || this.#nextTime > this.#ctx.currentTime + 0.02;
+  }
+
+  #notifyIdleIfDrained(): void {
+    if (!this.hasScheduledAudio()) {
+      this.#onPlaybackIdle?.();
+    }
+  }
+
+  /** Re-resume after OS output route changes (headphones plug/unplug). */
+  async syncOutputRoute(): Promise<void> {
+    if (!this.#armed) return;
+    try {
+      await this.#ctx.resume();
+    } catch {
+      /* ignore */
+    }
   }
 
   enqueueInlineData(data: string | Uint8Array | ArrayBuffer): void {
@@ -39,6 +65,7 @@ export class GeminiPcmPlayback {
     this.#scheduled.push(source);
     source.onEnded = () => {
       this.#scheduled = this.#scheduled.filter((node) => node !== source);
+      this.#notifyIdleIfDrained();
     };
 
     const startAt = Math.max(this.#ctx.currentTime, this.#nextTime);
@@ -57,6 +84,7 @@ export class GeminiPcmPlayback {
     }
     this.#scheduled = [];
     this.#nextTime = this.#ctx.currentTime + 0.05;
+    this.#notifyIdleIfDrained();
   }
 
   async teardown(): Promise<void> {

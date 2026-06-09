@@ -22,6 +22,22 @@ export function translationForDisplay(sanitizedOriginal: string, sanitizedTransl
   return t;
 }
 
+/**
+ * Gemini Live output transcription arrives as incremental fragments (often word-by-word).
+ * Handles both delta chunks and cumulative strings from the server.
+ */
+export function appendTranscriptionFragment(prevBody: string, fragment: string): string {
+  const prev = sanitizeTranscriptDisplay(prevBody);
+  const next = sanitizeTranscriptDisplay(fragment);
+  if (!next) return prev;
+  if (!prev) return next;
+  if (next.startsWith(prev)) return next;
+  if (prev.startsWith(next)) return prev;
+  const needsSpace =
+    prev.length > 0 && !/[ \n]$/.test(prev) && !/^[,.;:!?)]/.test(next);
+  return sanitizeTranscriptDisplay(`${prev}${needsSpace ? ' ' : ''}${next}`);
+}
+
 /** Merge consecutive finals into one readable turn when Gemini emits rapid commits mid-thought. */
 export function mergeContinuationParagraph(prevBody: string, nextBody: string): string {
   const a = sanitizeTranscriptDisplay(prevBody);

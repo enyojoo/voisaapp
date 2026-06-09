@@ -6,7 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/icons/ios-light.png",
     "scheme": "voisa",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.easner.voisa",

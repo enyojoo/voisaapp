@@ -12,6 +12,8 @@ const MODEL = "gemini-3.5-live-translate-preview";
 type Body = {
   languageA?: string;
   languageB?: string;
+  /** Which side of the pair to translate into for this session (must be A or B). */
+  targetLanguage?: string;
 };
 
 function normalizeLang(code: string | undefined, fallback: string): string {
@@ -54,6 +56,13 @@ Deno.serve(async (req) => {
 
   const languageA = normalizeLang(body.languageA, "en");
   const languageB = normalizeLang(body.languageB, "es");
+  const requestedTarget = body.targetLanguage?.trim()
+    ? normalizeLang(body.targetLanguage, languageB)
+    : languageB;
+  const targetLanguage =
+    requestedTarget === languageA || requestedTarget === languageB
+      ? requestedTarget
+      : languageB;
 
   const expireTime = new Date(Date.now() + 30 * 60 * 1000).toISOString();
   const newSessionExpireTime = new Date(Date.now() + 10 * 60 * 1000).toISOString();
@@ -75,9 +84,11 @@ Deno.serve(async (req) => {
             responseModalities: [Modality.AUDIO],
             inputAudioTranscription: {},
             outputAudioTranscription: {},
+            sessionResumption: {},
+            contextWindowCompression: { slidingWindow: {} },
             translationConfig: {
-              targetLanguageCode: languageB,
-              echoTargetLanguage: true,
+              targetLanguageCode: targetLanguage,
+              echoTargetLanguage: false,
             },
           },
         },
@@ -100,6 +111,7 @@ Deno.serve(async (req) => {
         expireTime,
         languageA,
         languageB,
+        targetLanguage,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );

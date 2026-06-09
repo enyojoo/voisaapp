@@ -37,7 +37,7 @@ export default function TranslateScreenImpl() {
   const pickerListRef = useRef<FlatList<GeminiLanguage>>(null);
   const activePairKeyRef = useRef<string | null>(null);
 
-  /** Left dock pill = language A; right = language B (Gemini target is language B with echo). */
+  /** Left dock pill = language A; right = language B (session target flips A↔B from detected speech). */
   const [languageLeft, setLanguageLeft] = useState('en');
   const [languageRight, setLanguageRight] = useState('es');
   const [pickerSlot, setPickerSlot] = useState<'left' | 'right' | null>(null);
@@ -51,9 +51,9 @@ export default function TranslateScreenImpl() {
   const [sessionStartedOnTap, setSessionStartedOnTap] = useState(false);
 
   const connecting = gem.connection === 'connecting';
-  const active = gem.connection === 'connected' || gem.connection === 'reconnecting';
+  const active = gem.connection === 'connected';
   const inSessionUi =
-    sessionStartedOnTap || gem.micLive || active || connecting || gem.connection === 'reconnecting';
+    sessionStartedOnTap || gem.micLive || active || connecting;
   const bodyFade = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
@@ -82,6 +82,13 @@ export default function TranslateScreenImpl() {
     gem.segments.length === 0 &&
     !hasGeminiLive &&
     (gem.micLive || connecting);
+
+  const sourceLabel = gem.translationDirection
+    ? geminiLanguageLabel(gem.translationDirection.from)
+    : geminiLanguageLabel(languageLeft);
+  const targetLabel = gem.translationDirection
+    ? geminiLanguageLabel(gem.translationDirection.to)
+    : geminiLanguageLabel(languageRight);
 
   const hasLiveLine = inSessionUi && hasLiveOriginal;
 
@@ -315,6 +322,14 @@ export default function TranslateScreenImpl() {
             showsVerticalScrollIndicator
             accessibilityLiveRegion="polite"
           >
+            {gem.translationDirection ? (
+              <View style={styles.directionChip} accessibilityRole="text">
+                <Text style={styles.directionChipText}>
+                  {sourceLabel} → {targetLabel}
+                </Text>
+              </View>
+            ) : null}
+
             {gem.segments.map((item) => {
               /**
                * If the live partial is a continuation of THIS segment (sliding pause window), render it inline so
@@ -340,7 +355,7 @@ export default function TranslateScreenImpl() {
                   <Text
                     style={styles.originalSecondary}
                     selectable
-                    accessibilityHint={`Spoken (${geminiLanguageLabel(languageLeft)})`}
+                    accessibilityHint={`Spoken (${sourceLabel})`}
                   >
                     {originalDisplay || '…'}
                   </Text>
@@ -351,7 +366,7 @@ export default function TranslateScreenImpl() {
                     <Text
                       style={styles.translationPrimary}
                       selectable
-                      accessibilityHint={`Translated (${geminiLanguageLabel(languageRight)})`}
+                      accessibilityHint={`Translated (${targetLabel})`}
                     >
                       {translatedDisplay}
                     </Text>
@@ -360,7 +375,7 @@ export default function TranslateScreenImpl() {
                     <View
                       style={styles.translatingPulseRow}
                       accessibilityLabel="Translating"
-                      accessibilityHint={`Translating to ${geminiLanguageLabel(languageRight)}`}
+                      accessibilityHint={`Translating to ${targetLabel}`}
                     >
                       <Animated.View style={[styles.translatingDot, { opacity: dot1 }]} />
                       <Animated.View style={[styles.translatingDot, { opacity: dot2 }]} />
@@ -371,7 +386,7 @@ export default function TranslateScreenImpl() {
                     <Text
                       style={styles.translationPrimary}
                       selectable={false}
-                      accessibilityHint={`Translated (${geminiLanguageLabel(languageRight)})`}
+                      accessibilityHint={`Translated (${targetLabel})`}
                     >
                       …
                     </Text>
@@ -385,7 +400,7 @@ export default function TranslateScreenImpl() {
                 <Text
                   style={styles.originalSecondary}
                   selectable
-                  accessibilityHint={`Spoken (${geminiLanguageLabel(languageLeft)})`}
+                  accessibilityHint={`Spoken (${sourceLabel})`}
                 >
                   {liveOriginalDisplay}
                 </Text>
@@ -396,7 +411,7 @@ export default function TranslateScreenImpl() {
                   <Text
                     style={styles.translationPrimary}
                     selectable
-                    accessibilityHint={`Translated (${geminiLanguageLabel(languageRight)})`}
+                    accessibilityHint={`Translated (${targetLabel})`}
                   >
                     {gem.liveTranslated.trim()}
                   </Text>
@@ -404,7 +419,7 @@ export default function TranslateScreenImpl() {
                   <View
                     style={styles.translatingPulseRow}
                     accessibilityLabel="Translating"
-                    accessibilityHint={`Translating to ${geminiLanguageLabel(languageRight)}`}
+                    accessibilityHint={`Translating to ${targetLabel}`}
                   >
                     <Animated.View style={[styles.translatingDot, { opacity: dot1 }]} />
                     <Animated.View style={[styles.translatingDot, { opacity: dot2 }]} />
@@ -629,6 +644,20 @@ const styles = StyleSheet.create({
     paddingTop: spacing.xs,
     paddingBottom: spacing.lg,
     flexGrow: 1,
+  },
+  directionChip: {
+    alignSelf: 'center',
+    marginBottom: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: 999,
+    backgroundColor: colors.border,
+  },
+  directionChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    letterSpacing: 0.2,
   },
   transcriptCard: {
     marginBottom: spacing.sm,

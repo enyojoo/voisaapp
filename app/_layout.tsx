@@ -1,13 +1,12 @@
 import '@/lib/polyfills/install';
 
-import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router/react-navigation';
+import { DefaultTheme, ThemeProvider } from 'expo-router/react-navigation';
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import * as SystemUI from 'expo-system-ui';
 import { useEffect } from 'react';
-import { useColorScheme } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { configureVoisaRuntimeLogging } from '@/lib/logging/configureClientLogging';
@@ -58,17 +57,14 @@ function SplashGate() {
 }
 
 function RootLayoutNav() {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === 'dark';
-
   useEffect(() => {
-    void SystemUI.setBackgroundColorAsync(isDark ? '#000000' : colors.background);
-  }, [isDark]);
+    void SystemUI.setBackgroundColorAsync(colors.background);
+  }, []);
 
   return (
     <>
-      <StatusBar style={isDark ? 'light' : 'dark'} />
-      <ThemeProvider value={isDark ? DarkTheme : DefaultTheme}>
+      <StatusBar style="dark" />
+      <ThemeProvider value={DefaultTheme}>
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="index" />
           <Stack.Screen name="(auth)" />

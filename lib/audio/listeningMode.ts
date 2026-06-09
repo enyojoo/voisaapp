@@ -1,4 +1,5 @@
 import { setAudioModeAsync } from 'expo-audio';
+import { Platform } from 'react-native';
 import { AudioManager } from 'react-native-audio-api';
 
 export type VoisaOutputRoute = 'headphones' | 'earpiece';
@@ -27,14 +28,24 @@ export async function headphonesConnected(): Promise<boolean> {
  * - Headphones connected → let the OS route translated audio there (private, full tone).
  * - No headphones → earpiece/receiver (hold phone to ear like a call).
  */
+function shouldRouteThroughEarpieceForPlatform(hasHeadphones: boolean): boolean {
+  /**
+   * expo-audio Android maps `shouldRouteThroughEarpiece: false` to MODE_NORMAL +
+   * setSpeakerphoneOn(true), which forces the loudspeaker and breaks wired/BT headsets.
+   * Keep communication mode + speakerphone off on Android in all cases.
+   */
+  if (Platform.OS === 'android') return true;
+  return !hasHeadphones;
+}
+
 export async function applyVoisaOutputRoute(): Promise<VoisaOutputRoute> {
   const hasHeadphones = await headphonesConnected();
   try {
     await setAudioModeAsync({
       allowsRecording: true,
       playsInSilentMode: true,
-      interruptionMode: 'mixWithOthers',
-      shouldRouteThroughEarpiece: !hasHeadphones,
+      interruptionMode: 'doNotMix',
+      shouldRouteThroughEarpiece: shouldRouteThroughEarpieceForPlatform(hasHeadphones),
       shouldPlayInBackground: false,
     });
   } catch {
